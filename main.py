@@ -10,6 +10,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler
 from ingestion.news_fetcher import get_latest_news
 from telegram_bot.feedback_handler import get_callback_handler, build_feedback_keyboard, init_feedback_tables
 from telegram_bot.deduplicator import generate_news_id
+from sentiment_analyzer import analyze_sentiment, format_signal
 
 load_dotenv()
 
@@ -19,7 +20,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
 DATABASE_URL = os.getenv("DATABASE_URL")
-FETCH_INTERVAL = 300  # 5 minutes
+FETCH_INTERVAL = 60  # check every 1 minute
 
 # Validate required env vars
 for name, val in [("BOT_TOKEN", BOT_TOKEN), ("CHANNEL_ID", CHANNEL_ID), ("DATABASE_URL", DATABASE_URL)]:
@@ -39,9 +40,10 @@ async def init_db(pool: asyncpg.Pool):
     async with pool.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS sent_news (
-                news_id TEXT PRIMARY KEY,
-                title   TEXT,
-                sent_at TIMESTAMP DEFAULT NOW()
+                news_id    TEXT PRIMARY KEY,
+                title      TEXT,
+                sentiment  INT,
+                sent_at    TIMESTAMP DEFAULT NOW()
             )
         """)
     logger.info("✅ sent_news table ready")
@@ -51,11 +53,11 @@ async def is_already_sent(pool: asyncpg.Pool, news_id: str) -> bool:
         row = await conn.fetchrow("SELECT 1 FROM sent_news WHERE news_id = $1", news_id)
         return row is not None
 
-async def mark_as_sent(pool: asyncpg.Pool, news_id: str, title: str):
+async def mark_as_sent(pool: asyncpg.Pool, news_id: str, title: str, sentiment: int):
     async with pool.acquire() as conn:
         await conn.execute(
-            "INSERT INTO sent_news (news_id, title) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-            news_id, title
+            "INSERT INTO sent_news (news_id, title, sentiment) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+            news_id, title, sentiment
         )
 
 # ===================
@@ -74,14 +76,20 @@ async def news_loop(application, pool: asyncpg.Pool):
 
     while True:
         try:
-            news_list = await get_latest_news(limit=10)  # async in news_fetcher
+            news_list = await get_latest_news(limit=10)
             for news in news_list:
                 news_id = generate_news_id(news)
                 if not await is_already_sent(pool, news_id):
+
+                    # Get sentiment score from LLaMA-3 with feedback-based few-shot
+                    score = await analyze_sentiment(news['title'], pool=pool)
+                    signal = format_signal(score)
+
                     text = (
                         f"📰 {news['title']}\n"
                         f"🌍 Source: {news['source']}\n"
                         f"⏰ {news['publishedAt']}\n"
+                        f"{signal}\n"
                         f"🔗 {news['url']}"
                     )
                     keyboard = build_feedback_keyboard(news_id)
@@ -91,8 +99,9 @@ async def news_loop(application, pool: asyncpg.Pool):
                         reply_markup=keyboard,
                         disable_web_page_preview=True
                     )
-                    await mark_as_sent(pool, news_id, news['title'])
-                    logger.info(f"✅ Sent: {news['title']}")
+                    await mark_as_sent(pool, news_id, news['title'], score)
+                    logger.info(f"✅ Sent: {news['title']} | Signal: {score}/5")
+
         except Exception as e:
             logger.error(f"Error in news loop: {e}")
 
@@ -106,7 +115,7 @@ async def main():
     logger.info("✅ Connected to PostgreSQL")
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.bot_data["pool"] = pool  # share pool with all handlers
+    app.bot_data["pool"] = pool
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(get_callback_handler())
