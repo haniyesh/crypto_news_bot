@@ -1,2 +1,9 @@
 .env
 serviceAccountKey.json
+*.session
+*.session-journal
+*.jar
+*.Identifier
+__pycache__/
+*.pyc
+.DS_Store
