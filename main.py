@@ -6,6 +6,7 @@ import asyncio
 import logging
 import asyncpg
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from telegram.ext import ApplicationBuilder, CommandHandler
 from telethon import TelegramClient, events
@@ -25,15 +26,16 @@ CHANNEL_ID = os.getenv("CHANNEL_ID")
 DATABASE_URL = os.getenv("DATABASE_URL")
 API_ID = int(os.getenv("TELEGRAM_API_ID"))
 API_HASH = os.getenv("TELEGRAM_API_HASH")
-FETCH_INTERVAL = 60  # RSS/API polling every 60 seconds
+FETCH_INTERVAL = 30
+
 SCORE_EMOJI = {
     1: "🔴 Very Bearish",
-    2: "🟠 Bearish", 
+    2: "🟠 Bearish",
     3: "🟡 Neutral",
     4: "🟢 Bullish",
     5: "🚀 Very Bullish"
 }
-# Telegram channels to listen to in real-time
+
 WATCH_CHANNELS = ["cointelegraph", "the_block_crypto", "coindesk", "BitcoinMagazineTelegram", "cryptoslatenews", "wublockchainenglish"]
 
 for name, val in [("BOT_TOKEN", BOT_TOKEN), ("CHANNEL_ID", CHANNEL_ID), ("DATABASE_URL", DATABASE_URL)]:
@@ -45,6 +47,26 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger("crypto_news_bot")
+
+# ==============================
+# FORMAT TIME
+# ==============================
+def format_time(iso_string) -> str:
+    try:
+        from zoneinfo import ZoneInfo
+        if isinstance(iso_string, datetime):
+            dt = iso_string
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = datetime.fromisoformat(str(iso_string).replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+        dt_istanbul = dt.astimezone(ZoneInfo("Europe/Istanbul"))
+        return dt_istanbul.strftime("🕐 %d %b %Y • %H:%M (TR)")
+    except Exception as e:
+        logger.warning(f"format_time error: {e}")
+        return "🕐 Unknown"
 
 # ==============================
 # DATABASE HELPERS
@@ -72,72 +94,10 @@ async def mark_as_sent(pool: asyncpg.Pool, news_id: str, title: str, sentiment: 
             "INSERT INTO sent_news (news_id, title, sentiment) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
             news_id, title, sentiment
         )
-def format_time(iso_string: str) -> str:
-    try:
-        from zoneinfo import ZoneInfo
-        dt = datetime.fromisoformat(iso_string.replace("Z", "+00:00"))
-        now = datetime.now(ZoneInfo("UTC"))
-        diff = now - dt
-        seconds = int(diff.total_seconds())
 
-        if seconds < 60:
-            return f"🕐 Just now"
-        elif seconds < 3600:
-            minutes = seconds // 60
-            return f"🕐 {minutes} minute{'s' if minutes > 1 else ''} ago"
-        elif seconds < 86400:
-            hours = seconds // 3600
-            return f"🕐 {hours} hour{'s' if hours > 1 else ''} ago"
-        else:
-            days = seconds // 86400
-            return f"🕐 {days} day{'s' if days > 1 else ''} ago"
-    except Exception:
-        return iso_string
 # ==============================
 # SEND NEWS HELPER
 # ==============================
-def format_time(iso_string: str) -> str:
-    try:
-        from zoneinfo import ZoneInfo
-        dt = datetime.fromisoformat(iso_string.replace("Z", "+00:00"))
-        now = datetime.now(ZoneInfo("UTC"))
-        diff = int((now - dt).total_seconds())
-
-        if diff < 60:
-            return "🕐 Just now"
-        elif diff < 3600:
-            m = diff // 60
-            return f"🕐 {m} minute{'s' if m > 1 else '} ago'"
-        elif diff < 86400:
-            h = diff // 3600
-            return f"🕐 {h} hour{'s' if h > 1 else ''} ago"
-        else:
-            d = diff // 86400
-            return f"🕐 {d} day{'s' if d > 1 else ''} ago"
-    except Exception:
-        return iso_string
-
-def format_time(iso_string: str) -> str:
-    try:
-        from zoneinfo import ZoneInfo
-        dt = datetime.fromisoformat(iso_string.replace("Z", "+00:00"))
-        now = datetime.now(ZoneInfo("UTC"))
-        diff = int((now - dt).total_seconds())
-
-        if diff < 60:
-            return "🕐 Just now"
-        elif diff < 3600:
-            m = diff // 60
-            return f"🕐 {m} minute{'s' if m > 1 else '} ago'"
-        elif diff < 86400:
-            h = diff // 3600
-            return f"🕐 {h} hour{'s' if h > 1 else ''} ago"
-        else:
-            d = diff // 86400
-            return f"🕐 {d} day{'s' if d > 1 else ''} ago"
-    except Exception:
-        return iso_string
-
 async def send_news(bot, pool, news: dict):
     """Score, format and send a single news item to the channel."""
     news_id = generate_news_id(news)
@@ -145,14 +105,13 @@ async def send_news(bot, pool, news: dict):
         return
 
     score = await analyze_sentiment(news['title'], pool=pool)
-    signal = format_signal(score)
-
     clean_url = news['url'].split('?')[0]
-    
+    time_str = format_time(news['publishedAt'])
+
     text = (
         f"🔔 {news['title']}\n\n"
-        f"📡 {news['source']}  •  {format_time(news['publishedAt'])}\n\n"
-        f"📊 {score}/5 {SCORE_EMOJI.get(score, '🟡')} \n\n"
+        f"📡 {news['source']}  •  {time_str}\n\n"
+        f"📊 {score}/5 — {SCORE_EMOJI.get(score, '🟡 Neutral')}\n\n"
         f"🔗 {clean_url}"
     )
     keyboard = build_feedback_keyboard(news_id)
@@ -163,7 +122,7 @@ async def send_news(bot, pool, news: dict):
         disable_web_page_preview=True
     )
     await mark_as_sent(pool, news_id, news['title'], score)
-    logger.info(f"✅ Sent: {news['title']} | Signal: {score}/5")
+    logger.info(f"✅ Sent: {news['title']} | Signal: {score}/5 | Time: {time_str}")
 
 # ===================
 # Start Command
@@ -175,7 +134,6 @@ async def start(update, context):
 # REAL-TIME TELEGRAM LISTENER
 # ==============================
 async def start_telegram_listener(bot, pool: asyncpg.Pool):
-    """Listen to Telegram channels in real-time using Telethon events."""
     client = TelegramClient("session_name", API_ID, API_HASH)
     await client.start()
     logger.info(f"✅ Real-time listener active for: {WATCH_CHANNELS}")
@@ -188,11 +146,12 @@ async def start_telegram_listener(bot, pool: asyncpg.Pool):
         try:
             channel = event.chat.username or str(event.chat_id)
             title = msg.message[:100] + ("..." if len(msg.message) > 100 else "")
+            # Use datetime object directly — no isoformat conversion
             news = {
                 "title": title,
                 "url": f"https://t.me/{channel}/{msg.id}",
                 "source": f"Telegram: {channel}",
-                "publishedAt": msg.date.isoformat()
+                "publishedAt": msg.date  # pass datetime object directly
             }
             logger.info(f"⚡ Real-time news from {channel}: {title[:50]}")
             await send_news(bot, pool, news)
@@ -205,31 +164,29 @@ async def start_telegram_listener(bot, pool: asyncpg.Pool):
 # RSS + API POLLING LOOP
 # ==============================
 async def rss_api_loop(bot, pool: asyncpg.Pool):
-    """Poll RSS and CryptoPanic API every 60 seconds."""
     while True:
         try:
             logger.info("👂 Checking RSS and API sources...")
             all_news = []
 
-            # RSS
             try:
                 all_news.extend(fetch_rss())
             except Exception as e:
                 logger.error(f"❌ RSS error: {e}")
 
-            # API
             try:
                 all_news.extend(fetch_api())
             except Exception as e:
                 logger.error(f"❌ API error: {e}")
 
-            # Deduplicate and sort
             unique = {item["title"]: item for item in all_news if item.get("title")}
+
             def parse_date(item):
                 try:
-                    return datetime.fromisoformat(item.get("publishedAt", ""))
+                    return datetime.fromisoformat(item.get("publishedAt", "").replace("Z", "+00:00"))
                 except Exception:
                     return datetime.min
+
             sorted_news = sorted(unique.values(), key=parse_date, reverse=True)
 
             for news in sorted_news[:10]:
@@ -260,17 +217,12 @@ async def main():
     async with app:
         await app.initialize()
         await app.start()
-
         await asyncio.gather(
             app.updater.start_polling(),
-            rss_api_loop(app.bot, pool),          # RSS + API every 60s
-            start_telegram_listener(app.bot, pool) # Telegram real-time ⚡
+            rss_api_loop(app.bot, pool),
+            start_telegram_listener(app.bot, pool)
         )
-
         await app.stop()
 
-# ===================
-# Entry Point
-# ===================
 if __name__ == "__main__":
     asyncio.run(main())
