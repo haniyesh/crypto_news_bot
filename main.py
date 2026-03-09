@@ -26,7 +26,13 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 API_ID = int(os.getenv("TELEGRAM_API_ID"))
 API_HASH = os.getenv("TELEGRAM_API_HASH")
 FETCH_INTERVAL = 60  # RSS/API polling every 60 seconds
-
+SCORE_EMOJI = {
+    1: "🔴 Very Bearish",
+    2: "🟠 Bearish", 
+    3: "🟡 Neutral",
+    4: "🟢 Bullish",
+    5: "🚀 Very Bullish"
+}
 # Telegram channels to listen to in real-time
 WATCH_CHANNELS = ["cointelegraph", "the_block_crypto", "coindesk", "BitcoinMagazineTelegram", "cryptoslatenews", "wublockchainenglish"]
 
@@ -90,6 +96,48 @@ def format_time(iso_string: str) -> str:
 # ==============================
 # SEND NEWS HELPER
 # ==============================
+def format_time(iso_string: str) -> str:
+    try:
+        from zoneinfo import ZoneInfo
+        dt = datetime.fromisoformat(iso_string.replace("Z", "+00:00"))
+        now = datetime.now(ZoneInfo("UTC"))
+        diff = int((now - dt).total_seconds())
+
+        if diff < 60:
+            return "🕐 Just now"
+        elif diff < 3600:
+            m = diff // 60
+            return f"🕐 {m} minute{'s' if m > 1 else '} ago'"
+        elif diff < 86400:
+            h = diff // 3600
+            return f"🕐 {h} hour{'s' if h > 1 else ''} ago"
+        else:
+            d = diff // 86400
+            return f"🕐 {d} day{'s' if d > 1 else ''} ago"
+    except Exception:
+        return iso_string
+
+def format_time(iso_string: str) -> str:
+    try:
+        from zoneinfo import ZoneInfo
+        dt = datetime.fromisoformat(iso_string.replace("Z", "+00:00"))
+        now = datetime.now(ZoneInfo("UTC"))
+        diff = int((now - dt).total_seconds())
+
+        if diff < 60:
+            return "🕐 Just now"
+        elif diff < 3600:
+            m = diff // 60
+            return f"🕐 {m} minute{'s' if m > 1 else '} ago'"
+        elif diff < 86400:
+            h = diff // 3600
+            return f"🕐 {h} hour{'s' if h > 1 else ''} ago"
+        else:
+            d = diff // 86400
+            return f"🕐 {d} day{'s' if d > 1 else ''} ago"
+    except Exception:
+        return iso_string
+
 async def send_news(bot, pool, news: dict):
     """Score, format and send a single news item to the channel."""
     news_id = generate_news_id(news)
@@ -99,11 +147,13 @@ async def send_news(bot, pool, news: dict):
     score = await analyze_sentiment(news['title'], pool=pool)
     signal = format_signal(score)
 
+    clean_url = news['url'].split('?')[0]
+    
     text = (
-        f"📰 {news['title']}\n"
-        f"⏰ {format_time(news['publishedAt'])}\n"
-        f"{signal}\n"
-        f"🔗 {news['url']}"
+        f"🔔 {news['title']}\n\n"
+        f"📡 {news['source']}  •  {format_time(news['publishedAt'])}\n\n"
+        f"📊 {score}/5 {SCORE_EMOJI.get(score, '🟡')} \n\n"
+        f"🔗 {clean_url}"
     )
     keyboard = build_feedback_keyboard(news_id)
     await bot.send_message(
