@@ -35,7 +35,7 @@ def fetch_rss() -> list:
                 news.append({
                     "title": entry.title,
                     "url": entry.link,
-                    "source": feed.feed.get("title", url),
+                    "source": feed.feed.get("title", url).split(":")[0].strip(),
                     "publishedAt": published_dt
                 })
         except Exception as e:

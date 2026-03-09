@@ -7,7 +7,7 @@ import aiohttp
 
 logger = logging.getLogger("crypto_news_bot")
 
-HF_API_KEY = os.getenv("HF_API_KEY")
+# HF_API_KEY is loaded inside functions to ensure dotenv is loaded first
 HF_API_URL = "https://router.huggingface.co/v1/chat/completions"
 HF_MODEL   = "meta-llama/Llama-3.1-8B-Instruct:cerebras"
 
@@ -45,6 +45,7 @@ async def get_few_shot_examples(pool, limit: int = 5) -> str:
         return ""
 
 async def analyze_sentiment(title: str, pool=None) -> int:
+    HF_API_KEY = os.getenv("HF_API_KEY")
     if not HF_API_KEY:
         logger.warning("⚠️ HF_API_KEY not set, defaulting to 3")
         return 3
