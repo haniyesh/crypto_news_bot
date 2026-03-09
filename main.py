@@ -37,6 +37,36 @@ SCORE_EMOJI = {
 }
 
 WATCH_CHANNELS = ["cointelegraph", "the_block_crypto", "coindesk", "BitcoinMagazineTelegram", "cryptoslatenews", "wublockchainenglish"]
+SOURCE_PRIORITY = {
+    "cointelegraph": 1,
+    "the_block_crypto": 1,
+    "coindesk": 1,
+    "CoinDesk": 1,
+    "CoinTelegraph": 1,
+    "BitcoinMagazineTelegram": 2,
+    "BitcoinMagazine": 2,
+    "Decrypt": 2,
+    "The Block": 2,
+    "cryptoslatenews": 3,
+    "CryptoSlate": 3,
+    "wublockchainenglish": 3,
+    "Wu Blockchain": 3,
+    "CryptoPanic": 4,
+    "NewsAPI": 4,
+}
+
+PRIORITY_BADGE = {
+    1: "🥇 Tier 1 — Most Reliable",
+    2: "🥈 Tier 2 — Very Reliable",
+    3: "🥉 Tier 3 — Good Source",
+    4: "4️⃣ Tier 4 — General News",
+}
+
+def get_priority_badge(source: str) -> str:
+    for key, priority in SOURCE_PRIORITY.items():
+        if key.lower() in source.lower():
+            return PRIORITY_BADGE.get(priority, "⭐ Other")
+    return "⭐ Other"
 
 for name, val in [("BOT_TOKEN", BOT_TOKEN), ("CHANNEL_ID", CHANNEL_ID), ("DATABASE_URL", DATABASE_URL)]:
     if not val:
@@ -108,11 +138,13 @@ async def send_news(bot, pool, news: dict):
     clean_url = news['url'].split('?')[0]
     time_str = format_time(news['publishedAt'])
 
+    badge = get_priority_badge(news['source'])
     text = (
-        f"🔔 {news['title']}\n\n"
-        f"📡 {news['source']}  •  {time_str}\n\n"
-        f"📊 {score}/5 — {SCORE_EMOJI.get(score, '🟡 Neutral')}\n\n"
-        f"🔗 {clean_url}"
+    f"🔔 {news['title']}\n\n"
+    f"📡 {news['source']}  •  {time_str}\n"
+    f"{badge}\n\n"
+    f"📊 {score}/5 — {SCORE_EMOJI.get(score, '🟡 Neutral')}\n\n"
+    f"🔗 {clean_url}"
     )
     keyboard = build_feedback_keyboard(news_id)
     await bot.send_message(
