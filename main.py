@@ -187,7 +187,7 @@ async def rss_api_loop(bot, pool: asyncpg.Pool):
                 except Exception:
                     return datetime.min
 
-            sorted_news = sorted(unique.values(), key=parse_date, reverse=True)
+            sorted_news = sorted(unique.values(), key=parse_date, reverse=False)
 
             for news in sorted_news[:10]:
                 await send_news(bot, pool, news)
