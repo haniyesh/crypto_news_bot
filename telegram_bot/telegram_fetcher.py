@@ -1,9 +1,11 @@
 # telegram_fetcher.py
+# Used only for initial bulk fetch on startup.
+# Real-time listening is handled by the event listener in main.py
 
 import os
 import logging
 from dotenv import load_dotenv
-from telethon import TelegramClient  # NOT telethon.sync — we're in async context
+from telethon import TelegramClient
 
 load_dotenv()
 
@@ -11,15 +13,24 @@ logger = logging.getLogger("crypto_news_bot")
 
 API_ID = os.getenv("TELEGRAM_API_ID")
 API_HASH = os.getenv("TELEGRAM_API_HASH")
-CHANNELS = ["cointelegraph", "the_block_crypto"]
+
+CHANNELS = [
+    "cointelegraph",
+    "the_block_crypto",
+    "coindesk",
+    "BitcoinMagazineTelegram",
+    "cryptoslatenews",
+    "wublockchainenglish"
+]
 NEWS_LIMIT = 10
 
 
 async def fetch_telegram() -> list:
+    """Fetch recent messages from channels — used only on startup."""
     news = []
 
     if not API_ID or not API_HASH:
-        logger.warning("⚠️ TELEGRAM_API_ID or TELEGRAM_API_HASH not set, skipping Telegram fetch.")
+        logger.warning("⚠️ TELEGRAM_API_ID or TELEGRAM_API_HASH not set.")
         return news
 
     try:

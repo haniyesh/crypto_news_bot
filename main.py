@@ -101,7 +101,6 @@ async def send_news(bot, pool, news: dict):
 
     text = (
         f"📰 {news['title']}\n"
-        f"🌍 Source: {news['source']}\n"
         f"⏰ {format_time(news['publishedAt'])}\n"
         f"{signal}\n"
         f"🔗 {news['url']}"

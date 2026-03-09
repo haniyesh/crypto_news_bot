@@ -1,14 +1,17 @@
-# fetchers/api_fetcher.py
+# api_fetcher.py
 
 import requests
+import os
 from datetime import datetime
 
 API_URL = "https://cryptopanic.com/api/v1/posts/"
 API_LIMIT = 15
 
-def fetch_api(api_key=None, limit=API_LIMIT):
+def fetch_api(api_key=None, limit=API_LIMIT) -> list:
     news = []
-    if api_key is None:
+    api_key = api_key or os.getenv("CRYPTOPANIC_API_KEY")
+    if not api_key:
+        print("⚠️ CRYPTOPANIC_API_KEY not set, skipping API fetch.")
         return news
 
     params = {

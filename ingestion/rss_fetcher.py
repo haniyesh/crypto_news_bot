@@ -1,14 +1,23 @@
-# fetchers/rss_fetcher.py
+# rss_fetcher.py
 
 import feedparser
 from datetime import datetime
 
 RSS_FEEDS = [
+    # Bitcoin & Ethereum specific
     "https://cryptonews.com/rss/bitcoin.xml",
-    "https://cryptonews.com/rss/ethereum.xml"
+    "https://cryptonews.com/rss/ethereum.xml",
+    # Major crypto news sites
+    "https://cointelegraph.com/rss",
+    "https://coindesk.com/arc/outboundfeeds/rss/",
+    "https://decrypt.co/feed",
+    "https://bitcoinmagazine.com/.rss/full/",
+    "https://theblock.co/rss.xml",
 ]
 
-def fetch_rss():
+
+
+def fetch_rss() -> list:
     news = []
     for url in RSS_FEEDS:
         try:
@@ -22,10 +31,11 @@ def fetch_rss():
                         published_dt = datetime.now().isoformat()
                 else:
                     published_dt = datetime.now().isoformat()
+
                 news.append({
                     "title": entry.title,
                     "url": entry.link,
-                    "source": url,
+                    "source": feed.feed.get("title", url),
                     "publishedAt": published_dt
                 })
         except Exception as e:
