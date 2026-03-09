@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import asyncio
 import logging
 import asyncpg
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from telegram.ext import ApplicationBuilder, CommandHandler
@@ -37,6 +37,7 @@ SCORE_EMOJI = {
 }
 
 WATCH_CHANNELS = ["cointelegraph", "the_block_crypto", "coindesk", "BitcoinMagazineTelegram", "cryptoslatenews", "wublockchainenglish"]
+
 SOURCE_PRIORITY = {
     "cointelegraph": 1,
     "the_block_crypto": 1,
@@ -83,7 +84,6 @@ logger = logging.getLogger("crypto_news_bot")
 # ==============================
 def format_time(iso_string) -> str:
     try:
-        from zoneinfo import ZoneInfo
         if isinstance(iso_string, datetime):
             dt = iso_string
             if dt.tzinfo is None:
@@ -137,14 +137,14 @@ async def send_news(bot, pool, news: dict):
     score = await analyze_sentiment(news['title'], pool=pool)
     clean_url = news['url'].split('?')[0]
     time_str = format_time(news['publishedAt'])
-
     badge = get_priority_badge(news['source'])
+
     text = (
-    f"🔔 {news['title']}\n\n"
-    f"📡 {news['source']}  •  {time_str}\n"
-    f"{badge}\n\n"
-    f"📊 {score}/5 — {SCORE_EMOJI.get(score, '🟡 Neutral')}\n\n"
-    f"🔗 {clean_url}"
+        f"🔔 {news['title']}\n\n"
+        f"📡 {news['source']}  •  {time_str}\n"
+        f"{badge}\n\n"
+        f"📊 {score}/5 — {SCORE_EMOJI.get(score, '🟡 Neutral')}\n\n"
+        f"🔗 {clean_url}"
     )
     keyboard = build_feedback_keyboard(news_id)
     await bot.send_message(
@@ -178,12 +178,11 @@ async def start_telegram_listener(bot, pool: asyncpg.Pool):
         try:
             channel = event.chat.username or str(event.chat_id)
             title = msg.message[:100] + ("..." if len(msg.message) > 100 else "")
-            # Use datetime object directly — no isoformat conversion
             news = {
                 "title": title,
                 "url": f"https://t.me/{channel}/{msg.id}",
                 "source": f"Telegram: {channel}",
-                "publishedAt": msg.date  # pass datetime object directly
+                "publishedAt": msg.date  # datetime object directly
             }
             logger.info(f"⚡ Real-time news from {channel}: {title[:50]}")
             await send_news(bot, pool, news)
@@ -211,8 +210,24 @@ async def rss_api_loop(bot, pool: asyncpg.Pool):
             except Exception as e:
                 logger.error(f"❌ API error: {e}")
 
+            # Deduplicate by title
             unique = {item["title"]: item for item in all_news if item.get("title")}
 
+            # Filter: only keep news from last 4 hours
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=4)
+
+            def is_recent(item):
+                try:
+                    dt = datetime.fromisoformat(item.get("publishedAt", "").replace("Z", "+00:00"))
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    return dt >= cutoff
+                except Exception:
+                    return False
+
+            unique = {k: v for k, v in unique.items() if is_recent(v)}
+
+            # Sort oldest first so newest appears at bottom of channel
             def parse_date(item):
                 try:
                     return datetime.fromisoformat(item.get("publishedAt", "").replace("Z", "+00:00"))
